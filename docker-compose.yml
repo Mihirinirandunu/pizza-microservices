@@ -1,0 +1,34 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: pizza-postgres
+    environment:
+      POSTGRES_USER: pizza
+      POSTGRES_PASSWORD: pizza123
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d
+    networks:
+      - pizza-net
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: pizza-rabbitmq
+    hostname: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: pizza
+      RABBITMQ_DEFAULT_PASS: pizza123
+    ports:
+      - "5672:5672"      # AMQP protocol port
+      - "15672:15672"    # Management UI port
+    networks:
+      - pizza-net
+
+volumes:
+  pgdata:
+
+networks:
+  pizza-net:
+    driver: bridge
