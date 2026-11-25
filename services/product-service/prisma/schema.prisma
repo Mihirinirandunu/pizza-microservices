@@ -1,0 +1,38 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PizzaSize {
+  MEDIUM
+  LARGE
+  XL
+}
+
+model Pizza {
+  id          String         @id @default(uuid())
+  name        String         @unique
+  description String
+  imageUrl    String
+  category    String         @default("Classic")
+  isActive    Boolean        @default(true)
+  variants    PizzaVariant[]
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+}
+
+model PizzaVariant {
+  id      String    @id @default(uuid())
+  pizzaId String
+  pizza   Pizza     @relation(fields: [pizzaId], references: [id], onDelete: Cascade)
+  size    PizzaSize
+  price   Decimal   @db.Decimal(10, 2)
+  stock   Int       @default(0)
+
+  @@unique([pizzaId, size])
+}

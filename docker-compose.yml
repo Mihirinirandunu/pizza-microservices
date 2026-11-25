@@ -3,13 +3,18 @@ services:
     image: postgres:16-alpine
     container_name: pizza-postgres
     environment:
-      POSTGRES_USER: pizza
-      POSTGRES_PASSWORD: pizza123
+      POSTGRES_USER: ${POSTGRES_USER:-pizza}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pizza123}
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./db/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pizza}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     networks:
       - pizza-net
 
@@ -23,6 +28,130 @@ services:
     ports:
       - "5672:5672"      # AMQP protocol port
       - "15672:15672"    # Management UI port
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - pizza-net
+
+  auth-service:
+    build:
+      context: ./services/auth-service
+    container_name: pizza-auth-service
+    environment:
+      PORT: 4001
+      NODE_ENV: production
+      DATABASE_URL: postgresql://pizza:pizza123@postgres:5432/auth_db?schema=public
+      JWT_SECRET: ${JWT_SECRET:-pizza-shop-super-secret-jwt-key-2026}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
+    ports:
+      - "4001:4001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - pizza-net
+
+  product-service:
+    build:
+      context: ./services/product-service
+    container_name: pizza-product-service
+    environment:
+      PORT: 4002
+      NODE_ENV: production
+      DATABASE_URL: postgresql://pizza:pizza123@postgres:5432/product_db?schema=public
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-pizza-internal-service-key-2026}
+    ports:
+      - "4002:4002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - pizza-net
+
+  order-service:
+    build:
+      context: ./services/order-service
+    container_name: pizza-order-service
+    environment:
+      PORT: 4003
+      NODE_ENV: production
+      DATABASE_URL: postgresql://pizza:pizza123@postgres:5432/order_db?schema=public
+      PRODUCT_SERVICE_URL: http://product-service:4002
+      RABBITMQ_URL: amqp://pizza:pizza123@rabbitmq:5672
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-pizza-internal-service-key-2026}
+    ports:
+      - "4003:4003"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      product-service:
+        condition: service_started
+    networks:
+      - pizza-net
+
+  notification-service:
+    build:
+      context: ./services/notification-service
+    container_name: pizza-notification-service
+    environment:
+      PORT: 4004
+      NODE_ENV: production
+      DATABASE_URL: postgresql://pizza:pizza123@postgres:5432/notification_db?schema=public
+      RABBITMQ_URL: amqp://pizza:pizza123@rabbitmq:5672
+      MAILTRAP_HOST: ${MAILTRAP_HOST:-sandbox.smtp.mailtrap.io}
+      MAILTRAP_PORT: ${MAILTRAP_PORT:-2525}
+      MAILTRAP_USER: ${MAILTRAP_USER:-}
+      MAILTRAP_PASS: ${MAILTRAP_PASS:-}
+      SHOP_OWNER_EMAIL: ${SHOP_OWNER_EMAIL:-owner@pizzashop.local}
+      EMAIL_FROM: ${EMAIL_FROM:-"Pizza Shop <no-reply@pizzashop.local>"}
+    ports:
+      - "4004:4004"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - pizza-net
+
+  api-gateway:
+    build:
+      context: ./services/api-gateway
+    container_name: pizza-api-gateway
+    environment:
+      PORT: 8000
+      NODE_ENV: production
+      JWT_SECRET: ${JWT_SECRET:-pizza-shop-super-secret-jwt-key-2026}
+      CORS_ORIGIN: http://localhost:3000,http://localhost:5173
+      AUTH_SERVICE_URL: http://auth-service:4001
+      PRODUCT_SERVICE_URL: http://product-service:4002
+      ORDER_SERVICE_URL: http://order-service:4003
+      NOTIFICATION_SERVICE_URL: http://notification-service:4004
+    ports:
+      - "8000:8000"
+    depends_on:
+      - auth-service
+      - product-service
+      - order-service
+      - notification-service
+    networks:
+      - pizza-net
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: http://localhost:8000
+    container_name: pizza-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - api-gateway
     networks:
       - pizza-net
 
